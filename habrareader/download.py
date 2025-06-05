@@ -20,6 +20,7 @@ from habrareader.download.database_helpers import (
     save_comment_child,
     clean_comments,
 )
+from habrareader.data.columns import ID, IS_SUCCESS
 
 SQLITE_CONNECTION = "database.sqlite"
 
@@ -28,6 +29,7 @@ def run(
     only_missing: bool,
     start_id: int,
     end_id: int,
+    reverse: bool,
 ):
     with sqlite3.connect(SQLITE_CONNECTION) as connection:
         create_tables(connection=connection)
@@ -39,7 +41,7 @@ def run(
             if only_missing:
                 start_id = 1
             else:
-                cursor.execute(f"SELECT max(id) FROM {ARTICLE_TBL}")
+                cursor.execute(f"SELECT max({ID}) FROM {ARTICLE_TBL}")
                 start_id = cursor.fetchall()[0][0]
                 if start_id is None:
                     start_id = 0
@@ -47,7 +49,7 @@ def run(
 
         if end_id is None:
             if only_missing:
-                cursor.execute(f"SELECT max(id) FROM {ARTICLE_TBL}")
+                cursor.execute(f"SELECT max({ID}) FROM {ARTICLE_TBL}")
                 end_id = cursor.fetchall()[0][0]
                 if end_id is None:
                     end_id = 0
@@ -56,17 +58,20 @@ def run(
         print(f"Start ID: {start_id}. End ID: {end_id}")
 
         if only_missing:
-            query = f"SELECT id FROM {ARTICLE_TBL} WHERE is_success = 0 AND id >= {start_id} AND id <= {end_id}"
+            query = f"SELECT id FROM {ARTICLE_TBL} WHERE {IS_SUCCESS} = 0 AND {ID} >= {start_id} AND {ID} <= {end_id}"
             cursor.execute(query)
-            ids = [row[0] for row in cursor.fetchall()]
+            ids = sorted([row[0] for row in cursor.fetchall()])
         else:
-            cursor.execute(f"SELECT id FROM {ARTICLE_TBL} WHERE is_success = 0")
+            cursor.execute(f"SELECT id FROM {ARTICLE_TBL} WHERE {IS_SUCCESS} = 0")
             ids = list(range(start_id, end_id + 1))
+        if reverse:
+            ids = ids[::-1]
+
         try:
             for id_ in ids:
                 print(f"Downloading article #{id_}...")
                 article_data = get_article(id_)
-                cursor.execute(f"SELECT is_success FROM {ARTICLE_TBL} WHERE id = {id_}")
+                cursor.execute(f"SELECT {IS_SUCCESS} FROM {ARTICLE_TBL} WHERE {ID} = {id_}")
                 was_success = cursor.fetchall()
                 if len(was_success) == 0:
                     was_success = 0
@@ -136,18 +141,22 @@ def main():
         )
     )
     parser.add_argument(
-        "--only-missing",
+        "--reverse",
         action="store_true",
-        help="Download only articles that were not downloaded due to errors"
+        help="Download only articles from newest to oldest"
     )
+    parser.add_argument("--only-missing", action="store_true",
+        help="Download only articles that were not downloaded due to errors")
     args = parser.parse_args()
     start_id = args.start_id
     end_id = args.end_id
     only_missing = args.only_missing
+    reverse = args.reverse
     run(
         only_missing=only_missing,
         start_id=start_id,
         end_id=end_id,
+        reverse=reverse,
     )
 
 
