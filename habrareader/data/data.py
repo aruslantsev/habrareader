@@ -2,7 +2,11 @@ from dataclasses import dataclass
 from typing import Optional, Iterable
 
 
-@dataclass(eq=True, frozen=True)
+def sanitize(string):
+    return string.encode("utf-16-le", errors="replace").decode("utf-16-le")
+
+
+@dataclass(frozen=True)
 class Article:
     id_: int
     time_downloaded: int
@@ -10,7 +14,7 @@ class Article:
     is_success: int
 
 
-@dataclass(eq=True, frozen=True)
+@dataclass
 class ArticleContents:
     id_: int
     lang: str
@@ -21,15 +25,19 @@ class ArticleContents:
     is_corporative: int
     original_url: Optional[str]  # if translation
 
+    def __post_init__(self):
+        self.text_html = sanitize(self.text_html)
+        self.lead_data = sanitize(self.lead_data)
 
-@dataclass(eq=True, frozen=True)
+
+@dataclass(frozen=True)
 class Author:
     author_id: int
     alias: str
     full_name: str
 
 
-@dataclass(eq=True, frozen=True)
+@dataclass
 class ArticleStatistics:
     id_: int
     num_comments: int
@@ -40,25 +48,25 @@ class ArticleStatistics:
     votes_negative: int
 
 
-@dataclass(eq=True, frozen=True)
+@dataclass(frozen=True)
 class ArticleHub:
     id_: int
     hub_id: int
 
 
-@dataclass(eq=True, frozen=True)
+@dataclass(frozen=True)
 class ArticleTag:
     id_: int
     tag_title_html: str
 
 
-@dataclass(eq=True, frozen=True)
+@dataclass(frozen=True)
 class ArticleFlow:
     id_: int
     flow_id: int
 
 
-@dataclass(eq=True, frozen=True)
+@dataclass(frozen=True)
 class Hub:
     hub_id: int
     hub_alias: str
@@ -67,7 +75,7 @@ class Hub:
     hub_title_html: str
 
 
-@dataclass(eq=True, frozen=True)
+@dataclass(frozen=True)
 class Flow:
     flow_id: int
     flow_alias: str
@@ -75,14 +83,14 @@ class Flow:
     flow_title_html: str
 
 
-@dataclass(eq=True, frozen=True)
+@dataclass(frozen=True)
 class ArticleComment:
     id_: int
     comment_id: int
     time_published: int
 
 
-@dataclass(eq=True, frozen=True)
+@dataclass
 class CommentContents:
     comment_id: int
     score: str
@@ -90,8 +98,11 @@ class CommentContents:
     message: str
     author_id: int
 
+    def __post_init__(self):
+        self.message = sanitize(self.message)
 
-@dataclass(eq=True, frozen=True)
+
+@dataclass(frozen=True)
 class CommentChild:
     comment_id: int
     child_comment_id: int

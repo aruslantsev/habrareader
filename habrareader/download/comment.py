@@ -9,7 +9,13 @@ DEFAULT_AUTHOR = {"id": "0", "alias": "", "fullname": ""}
 
 def get_article_comments(id_: int) -> CommentsData:
     with requests.get(f"https://habr.com/kek/v2/articles/{id_}/comments", ) as req:
-        req.raise_for_status()
+        if req.status_code != 200:
+            return CommentsData(
+                comments=[],
+                comments_contents=[],
+                authors=[],
+                comments_children=[],
+            )
         data = req.json()
         comments = []
         comments_contents = []

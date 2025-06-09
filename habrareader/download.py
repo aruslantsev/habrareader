@@ -115,7 +115,6 @@ def run(
         except Exception as e:
             connection.rollback()
             print(e)
-            print(article_data)
             raise e
         return
 
