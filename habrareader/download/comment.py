@@ -3,8 +3,7 @@ import datetime
 import requests
 
 from habrareader.data import ArticleComment, CommentContents, CommentChild, Author, CommentsData
-
-DEFAULT_AUTHOR = {"id": "0", "alias": "", "fullname": ""}
+from habrareader.data.author import default_author
 
 
 def get_article_comments(id_: int) -> CommentsData:
@@ -23,7 +22,7 @@ def get_article_comments(id_: int) -> CommentsData:
         comments_children = []
         for comment_id, comment_data in data["comments"].items():
             if comment_data["author"] is None:
-                comment_data["author"] = DEFAULT_AUTHOR
+                comment_data["author"] = default_author
             comment = ArticleComment(
                 id_=int(id_),
                 comment_id=int(comment_id),

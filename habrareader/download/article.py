@@ -14,6 +14,7 @@ from habrareader.data import (
     Flow,
     ArticleData,
 )
+from habrareader.data.author import default_author
 
 
 def get_article(id_: int) -> ArticleData:
@@ -38,6 +39,8 @@ def get_article(id_: int) -> ArticleData:
         for post_label in data["postLabels"]:
             if post_label["type"] == "translation":
                 original_url = post_label["data"]["originalUrl"]
+        if data["author"] is None:
+            data["author"] = default_author
         article_contents = ArticleContents(
             id_=int(id_),
             lang=data["lang"],
