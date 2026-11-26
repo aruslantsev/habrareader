@@ -9,16 +9,18 @@ async def save_download(
     article: Article,
     comments: list[ArticleComment] | None = None,
 ) -> None:
+    source_tags = list(article.tags)
+    article.tags = []
+    merged = await session.merge(article)
+
     merged_tags = []
-    for tag in article.tags:
+    for tag in source_tags:
         result = await session.execute(
             select(Tag).where(Tag.title_html == tag.title_html)
         )
         existing = result.scalar_one_or_none()
-        merged_tags.append(existing or tag)
-    article.tags = merged_tags
-
-    merged = await session.merge(article)
+        merged_tags.append(existing or Tag(title_html=tag.title_html))
+    merged.tags = merged_tags
 
     if comments is not None:
         delete_statement = delete(ArticleComment).where(
