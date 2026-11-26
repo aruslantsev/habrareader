@@ -1,10 +1,11 @@
 import pytest
 
-from sqlalchemy import select
-
-from habrareader.data.database import create_database_engine, initialize_database, create_session_factory
+from habrareader.data.database import (
+    create_database_engine,
+    create_session_factory,
+    initialize_database,
+)
 from habrareader.data.model import Article, ArticleState
-from habrareader.data import Article as DTOArticle, ArticleData, CommentsData
 
 
 @pytest.mark.asyncio
@@ -13,23 +14,22 @@ async def test_failed_article_is_saved():
     await initialize_database(engine)
     factory = create_session_factory(engine)
 
-    async with factory() as session:
-        from habrareader.download.database_helpers import save_download
-        await save_download(
-            session,
-            ArticleData(article=DTOArticle(
-                id_=123,
-                time_downloaded=100,
-                time_published=None,
-                is_success=0,
-            ),),
-            CommentsData(),
-        )
+    article = Article(id=123)
+    article.state = ArticleState(
+        id=123,
+        published_at=None,
+        updated_at=100,
+        is_success=False,
+    )
 
     async with factory() as session:
-        article = await session.get(Article, 123)
+        from habrareader.download.database_helpers import save_download
+        await save_download(session, article)
+
+    async with factory() as session:
+        stored_article = await session.get(Article, 123)
         state = await session.get(ArticleState, 123)
-        assert article is not None
+        assert stored_article is not None
         assert state is not None
         assert state.is_success is False
 

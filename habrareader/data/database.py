@@ -1,11 +1,11 @@
-from collections.abc import AsyncIterator
-
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
 from habrareader.data.model import Base
-
-
-SQLITE_CONNECTION = "database.sqlite"
 
 
 def create_database_engine(database_url: str | None = None) -> AsyncEngine:
@@ -18,5 +18,7 @@ async def initialize_database(engine: AsyncEngine) -> None:
         await connection.run_sync(Base.metadata.create_all)
 
 
-def create_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
+def create_session_factory(
+    engine: AsyncEngine,
+) -> async_sessionmaker[AsyncSession]:
     return async_sessionmaker(engine, expire_on_commit=False)

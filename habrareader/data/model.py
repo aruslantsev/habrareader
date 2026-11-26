@@ -1,27 +1,7 @@
 from typing import Optional
 
-from sqlalchemy import ForeignKey, Table, Column, UniqueConstraint
+from sqlalchemy import ForeignKey, Table, Column
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
-
-from habrareader.data.tables import (
-    ARTICLE_TBL,
-    ARTICLE_STATE_TBL,
-    AUTHOR_TBL,
-    ARTICLE_STATISTICS_TBL,
-    ARTICLE_HUB_TBL,
-    HUB_TBL,
-    ARTICLE_TAG_TBL,
-    TAG_TBL,
-    ARTICLE_FLOW_TBL,
-    FLOW_TBL,
-    ARTICLE_COMMENT_TBL,
-    COMMENT_CONTENTS_TBL,
-    COMMENT_CHILD_TBL,
-)
-
-
-def sanitize(value: str) -> str:
-    return value.encode("utf-16-le", errors="replace").decode("utf-16-le")
 
 
 class Base(DeclarativeBase):
@@ -29,40 +9,40 @@ class Base(DeclarativeBase):
 
 
 article_hub_table = Table(
-    ARTICLE_HUB_TBL,
+    "article_hub",
     Base.metadata,
-    Column("article_id", ForeignKey(f"{ARTICLE_TBL}.id", ondelete="CASCADE"), primary_key=True),
-    Column("hub_id", ForeignKey(f"{HUB_TBL}.id", ondelete="CASCADE"), primary_key=True),
+    Column("article_id", ForeignKey("article.id", ondelete="CASCADE"), primary_key=True),
+    Column("hub_id", ForeignKey("hub.id", ondelete="CASCADE"), primary_key=True),
 )
 
 article_flow_table = Table(
-    ARTICLE_FLOW_TBL,
+    "article_flow",
     Base.metadata,
-    Column("article_id", ForeignKey(f"{ARTICLE_TBL}.id", ondelete="CASCADE"), primary_key=True),
-    Column("flow_id", ForeignKey(f"{FLOW_TBL}.id", ondelete="CASCADE"), primary_key=True),
+    Column("article_id", ForeignKey("article.id", ondelete="CASCADE"), primary_key=True),
+    Column("flow_id", ForeignKey("flow.id", ondelete="CASCADE"), primary_key=True),
 )
 
 article_tag_table = Table(
-    ARTICLE_TAG_TBL,
+    "article_tag",
     Base.metadata,
-    Column("article_id", ForeignKey(f"{ARTICLE_TBL}.id", ondelete="CASCADE"), primary_key=True),
-    Column("tag_id", ForeignKey(f"{TAG_TBL}.id", ondelete="CASCADE"), primary_key=True),
+    Column("article_id", ForeignKey("article.id", ondelete="CASCADE"), primary_key=True),
+    Column("tag_id", ForeignKey("tag.id", ondelete="CASCADE"), primary_key=True),
 )
 
 
 class Author(Base):
-    __tablename__ = AUTHOR_TBL
+    __tablename__ = "author"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    alias: Mapped[str]
-    full_name: Mapped[str]
+    alias: Mapped[Optional[str]]
+    full_name: Mapped[Optional[str]]
 
     articles: Mapped[list["Article"]] = relationship(back_populates="author")
     comments: Mapped[list["CommentContents"]] = relationship(back_populates="author")
 
 
 class Article(Base):
-    __tablename__ = ARTICLE_TBL
+    __tablename__ = "article"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     language: Mapped[Optional[str]]
@@ -72,7 +52,7 @@ class Article(Base):
     is_corporative: Mapped[Optional[bool]]
     is_translation: Mapped[Optional[bool]]
     original_url: Mapped[Optional[str]]
-    author_id: Mapped[Optional[int]] = mapped_column(ForeignKey(f"{AUTHOR_TBL}.id"), nullable=True)
+    author_id: Mapped[Optional[int]] = mapped_column(ForeignKey("author.id"), nullable=True)
 
     author: Mapped[Optional[Author]] = relationship(back_populates="articles")
     state: Mapped[Optional["ArticleState"]] = relationship(back_populates="article", uselist=False)
@@ -82,16 +62,11 @@ class Article(Base):
     tags: Mapped[list["Tag"]] = relationship(secondary=article_tag_table, back_populates="articles")
     comments: Mapped[list["ArticleComment"]] = relationship(back_populates="article", cascade="all, delete-orphan")
 
-    def __post_init__(self) -> None:
-        self.title = sanitize(self.title)
-        self.text_html = sanitize(self.text_html)
-        self.lead_data = sanitize(self.lead_data)
-
 
 class ArticleState(Base):
-    __tablename__ = ARTICLE_STATE_TBL
+    __tablename__ = "article_state"
 
-    id: Mapped[int] = mapped_column(ForeignKey(f"{ARTICLE_TBL}.id", ondelete="CASCADE"), primary_key=True)
+    id: Mapped[int] = mapped_column(ForeignKey("article.id", ondelete="CASCADE"), primary_key=True)
     published_at: Mapped[Optional[int]]
     updated_at: Mapped[int]
     is_success: Mapped[bool]
@@ -100,9 +75,9 @@ class ArticleState(Base):
 
 
 class ArticleStatistics(Base):
-    __tablename__ = ARTICLE_STATISTICS_TBL
+    __tablename__ = "article_statistics"
 
-    id: Mapped[int] = mapped_column(ForeignKey(f"{ARTICLE_TBL}.id", ondelete="CASCADE"), primary_key=True)
+    id: Mapped[int] = mapped_column(ForeignKey("article.id", ondelete="CASCADE"), primary_key=True)
     num_comments: Mapped[int]
     num_readings: Mapped[int]
     score: Mapped[int]
@@ -114,7 +89,7 @@ class ArticleStatistics(Base):
 
 
 class Hub(Base):
-    __tablename__ = HUB_TBL
+    __tablename__ = "hub"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     alias: Mapped[str]
@@ -126,7 +101,7 @@ class Hub(Base):
 
 
 class Flow(Base):
-    __tablename__ = FLOW_TBL
+    __tablename__ = "flow"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     alias: Mapped[str]
@@ -137,7 +112,7 @@ class Flow(Base):
 
 
 class Tag(Base):
-    __tablename__ = TAG_TBL
+    __tablename__ = "tag"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     title_html: Mapped[str] = mapped_column(unique=True)
@@ -146,10 +121,10 @@ class Tag(Base):
 
 
 class ArticleComment(Base):
-    __tablename__ = ARTICLE_COMMENT_TBL
+    __tablename__ = "article_comment"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    article_id: Mapped[int] = mapped_column(ForeignKey(f"{ARTICLE_TBL}.id", ondelete="CASCADE"), index=True)
+    article_id: Mapped[int] = mapped_column(ForeignKey("article.id", ondelete="CASCADE"), index=True)
     time_published: Mapped[int]
 
     article: Mapped[Article] = relationship(back_populates="comments")
@@ -158,25 +133,25 @@ class ArticleComment(Base):
 
 
 class CommentContents(Base):
-    __tablename__ = COMMENT_CONTENTS_TBL
+    __tablename__ = "comment_contents"
 
-    comment_id: Mapped[int] = mapped_column(ForeignKey(f"{ARTICLE_COMMENT_TBL}.id", ondelete="CASCADE"), primary_key=True)
+    comment_id: Mapped[int] = mapped_column(ForeignKey("article_comment.id", ondelete="CASCADE"), primary_key=True)
     score: Mapped[int]
     votes_count: Mapped[int]
     message: Mapped[str]
-    author_id: Mapped[int] = mapped_column(ForeignKey(f"{AUTHOR_TBL}.id"))
+    author_id: Mapped[int] = mapped_column(ForeignKey("author.id"))
 
     comment: Mapped[ArticleComment] = relationship(back_populates="contents")
     author: Mapped[Author] = relationship(back_populates="comments")
 
-    def __post_init__(self) -> None:
-        self.message = sanitize(self.message)
-
 
 class CommentChild(Base):
-    __tablename__ = COMMENT_CHILD_TBL
+    __tablename__ = "comment_child"
 
-    comment_id: Mapped[int] = mapped_column(ForeignKey(f"{ARTICLE_COMMENT_TBL}.id", ondelete="CASCADE"), primary_key=True)
+    comment_id: Mapped[int] = mapped_column(
+        ForeignKey("article_comment.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
     child_comment_id: Mapped[int] = mapped_column(primary_key=True)
 
     comment: Mapped[ArticleComment] = relationship(back_populates="children")

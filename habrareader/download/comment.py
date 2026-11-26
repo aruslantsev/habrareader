@@ -1,50 +1,54 @@
 import datetime
 
-from habrareader.data import ArticleComment, CommentContents, CommentChild, Author, CommentsData
-from habrareader.data.author import default_author
+from habrareader.data.model import (
+    ArticleComment,
+    Author,
+    CommentChild,
+    CommentContents,
+)
 from habrareader.download.client import HabrClient
 
 
-async def get_article_comments(id_: int, client: HabrClient) -> CommentsData:
-    response = await client.request(f"https://habr.com/kek/v2/articles/{id_}/comments")
+async def get_article_comments(article_id: int, client: HabrClient) -> list[ArticleComment]:
+    response = await client.request(f"https://habr.com/kek/v2/articles/{article_id}/comments")
     if response.status_code != 200:
-        return CommentsData()
+        return []
 
     data = response.json()
     comments: list[ArticleComment] = []
-    contents: list[CommentContents] = []
-    authors: dict[int, Author] = {}
-    children: list[CommentChild] = []
 
     for comment_id, comment_data in data["comments"].items():
-        author_data = comment_data["author"] or default_author
-        author_id = int(author_data["id"])
-        authors[author_id] = Author(
-            author_id=author_id,
-            alias=author_data["alias"],
-            full_name=author_data["fullname"],
-        )
-        numeric_comment_id = int(comment_id)
-        comments.append(ArticleComment(
-            id_=id_,
-            comment_id=numeric_comment_id,
-            time_published=int(datetime.datetime.fromisoformat(comment_data["timePublished"]).timestamp()),
-        ))
-        contents.append(CommentContents(
-            comment_id=numeric_comment_id,
-            score=str(comment_data["score"]),
-            votes_count=str(comment_data["votesCount"]),
-            message=comment_data["message"] or "",
-            author_id=author_id,
-        ))
-        children.extend(
-            CommentChild(comment_id=numeric_comment_id, child_comment_id=int(child_id))
-            for child_id in comment_data["children"]
-        )
+        author_data = comment_data["author"]
+        if author_data is None:
+            author = Author(id=0, alias="", full_name="")
+        else:
+            author = Author(
+                id=int(author_data["id"]),
+                alias=author_data.get("alias") or "",
+                full_name=author_data.get("fullname") or "",
+            )
 
-    return CommentsData(
-        comments=comments,
-        comments_contents=contents,
-        authors=list(authors.values()),
-        comments_children=children,
-    )
+        numeric_comment_id = int(comment_id)
+        comment = ArticleComment(
+            id=numeric_comment_id,
+            article_id=article_id,
+            time_published=int(datetime.datetime.fromisoformat(comment_data["timePublished"]).timestamp()),
+        )
+        comment.contents = CommentContents(
+            comment_id=numeric_comment_id,
+            score=int(comment_data["score"]),
+            votes_count=int(comment_data["votesCount"]),
+            message=comment_data["message"] or "",
+            author_id=author.id,
+            author=author,
+        )
+        comment.children = [
+            CommentChild(
+                comment_id=numeric_comment_id,
+                child_comment_id=int(child_id),
+            )
+            for child_id in comment_data["children"]
+        ]
+        comments.append(comment)
+
+    return comments

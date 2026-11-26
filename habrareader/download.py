@@ -3,7 +3,11 @@ from argparse import ArgumentParser
 
 from sqlalchemy import select
 
-from habrareader.data.database import create_database_engine, initialize_database, create_session_factory
+from habrareader.data.database import (
+    create_database_engine,
+    create_session_factory,
+    initialize_database,
+)
 from habrareader.data.model import Article, ArticleState
 from habrareader.download.article import get_article, get_latest_id
 from habrareader.download.client import HabrClient
@@ -11,15 +15,12 @@ from habrareader.download.comment import get_article_comments
 from habrareader.download.database_helpers import save_download
 
 
-SQLITE_CONNECTION = "database.sqlite"
-
-
 async def fetch_one(article_id: int, client: HabrClient):
-    article_data = await get_article(article_id, client)
-    comments_data = None
-    if article_data.article.is_success:
-        comments_data = await get_article_comments(article_id, client)
-    return article_data, comments_data
+    article = await get_article(article_id, client)
+    comments = None
+    if article.state is not None and article.state.is_success:
+        comments = await get_article_comments(article_id, client)
+    return article, comments
 
 
 async def run(
@@ -75,14 +76,14 @@ async def run(
                 print("Downloading:", ", ".join(f"#{article_id}" for article_id in batch))
                 results = await asyncio.gather(*(fetch_one(article_id, client) for article_id in batch))
 
-                for article_data, comments_data in results:
-                    article_id = article_data.article.id_
-                    if article_data.article.is_success:
+                for article, comments in results:
+                    article_id = article.id
+                    if article.state is not None and article.state.is_success:
                         print(f"#{article_id}: Success")
                     else:
                         print(f"#{article_id}: Failed")
                     async with session_factory() as write_session:
-                        await save_download(write_session, article_data, comments_data)
+                        await save_download(write_session, article, comments)
         finally:
             await client.close()
 

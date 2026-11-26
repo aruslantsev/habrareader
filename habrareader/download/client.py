@@ -1,12 +1,7 @@
 import asyncio
 import time
-from collections.abc import Awaitable, Callable
-from typing import TypeVar
 
 import httpx
-
-
-T = TypeVar("T")
 
 
 class RateLimiter:

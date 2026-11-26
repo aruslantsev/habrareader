@@ -1,32 +1,45 @@
 import datetime
+import re
+import xml.etree.ElementTree as ET
 
-from habrareader.data import (
+from habrareader.data.model import (
     Article,
-    ArticleContents,
-    Author,
+    ArticleState,
     ArticleStatistics,
-    ArticleHub,
-    ArticleTag,
-    ArticleFlow,
-    Hub,
+    Author,
     Flow,
-    ArticleData,
+    Hub,
+    Tag,
 )
-from habrareader.data.author import default_author
 from habrareader.download.client import HabrClient
 
 
-async def get_article(id_: int, client: HabrClient) -> ArticleData:
-    current_time = int(datetime.datetime.now().timestamp())
+async def get_article(id_: int, client: HabrClient) -> Article:
     response = await client.request(f"https://habr.com/kek/v2/articles/{id_}")
+    downloaded_at = int(datetime.datetime.now().timestamp())
+
     if response.status_code != 200:
-        return ArticleData(
-            article=Article(id_=id_, time_downloaded=current_time, time_published=None, is_success=0)
+        article = Article(id=id_) 
+        article.state = ArticleState(
+            id=id_,
+            published_at=None,
+            updated_at=downloaded_at,
+            is_success=False,
         )
+        return article
 
     data = response.json()
-    published = int(datetime.datetime.fromisoformat(data["timePublished"]).timestamp())
-    article = Article(id_=id_, time_downloaded=current_time, time_published=published, is_success=1)
+    published_at = int(datetime.datetime.fromisoformat(data["timePublished"]).timestamp())
+
+    author_data = data["author"]
+    if author_data is None:
+        author = Author(id=0, alias="", full_name="")
+    else:
+        author = Author(
+            id=int(author_data["id"]),
+            alias=author_data.get("alias") or "",
+            full_name=author_data.get("fullname") or "",
+        )
 
     original_url = None
     is_translation = False
@@ -35,21 +48,50 @@ async def get_article(id_: int, client: HabrClient) -> ArticleData:
             is_translation = True
             original_url = post_label["data"].get("originalUrl")
 
-    author_data = data["author"] or default_author
-    article_contents = ArticleContents(
-        id_=id_,
-        lang=data["lang"],
+    statistics = data["statistics"]
+    hubs = [
+        Hub(
+            id=int(hub["id"]),
+            alias=hub["alias"],
+            type=hub["type"],
+            title=hub["title"],
+            title_html=hub["titleHtml"],
+        )
+        for hub in data["hubs"]
+    ]
+    flows = [
+        Flow(
+            id=int(flow["id"]),
+            alias=flow["alias"],
+            title=flow["title"],
+            title_html=flow["titleHtml"],
+        )
+        for flow in data["flows"]
+    ]
+    tags = [Tag(title_html=tag["titleHtml"]) for tag in data["tags"]]
+
+    article = Article(
+        id=id_,
+        language=data["lang"],
         title=data["titleHtml"],
-        author_id=int(author_data["id"]),
         text_html=data["textHtml"] or "",
         lead_data=(data["leadData"] or {}).get("textHtml") or "",
-        is_corporative=1 if data["isCorporative"] else 0,
+        is_corporative=bool(data["isCorporative"]),
+        is_translation=is_translation,
         original_url=original_url,
+        author=author,
+        hubs=hubs,
+        flows=flows,
+        tags=tags,
     )
-    author = Author(author_id=int(author_data["id"]), alias=author_data["alias"], full_name=author_data["fullname"])
-    statistics = data["statistics"]
-    article_statistics = ArticleStatistics(
-        id_=id_,
+    article.state = ArticleState(
+        id=id_,
+        published_at=published_at,
+        updated_at=downloaded_at,
+        is_success=True,
+    )
+    article.statistics = ArticleStatistics(
+        id=id_,
         num_comments=statistics["commentsCount"],
         num_readings=statistics["readingCount"],
         score=statistics["score"],
@@ -57,31 +99,22 @@ async def get_article(id_: int, client: HabrClient) -> ArticleData:
         votes_positive=statistics["votesCountPlus"],
         votes_negative=statistics["votesCountMinus"],
     )
-
-    article_hubs = [ArticleHub(id_=id_, hub_id=int(hub["id"])) for hub in data["hubs"]]
-    hubs = [Hub(hub_id=int(hub["id"]), hub_alias=hub["alias"], hub_type=hub["type"], hub_title=hub["title"], hub_title_html=hub["titleHtml"]) for hub in data["hubs"]]
-    article_tags = [ArticleTag(id_=id_, tag_title_html=tag["titleHtml"]) for tag in data["tags"]]
-    article_flows = [ArticleFlow(id_=id_, flow_id=int(flow["id"])) for flow in data["flows"]]
-    flows = [Flow(flow_id=int(flow["id"]), flow_alias=flow["alias"], flow_title=flow["title"], flow_title_html=flow["titleHtml"]) for flow in data["flows"]]
-
-    # Attach translation metadata to a transient attribute consumed by the ORM mapper.
-    setattr(article_contents, "is_translation", is_translation)
-
-    return ArticleData(
-        article=article,
-        article_contents=article_contents,
-        author=author,
-        article_statistics=article_statistics,
-        article_hubs=article_hubs,
-        article_tags=article_tags,
-        article_flows=article_flows,
-        hubs=hubs,
-        flows=flows,
-    )
+    return article
 
 
 async def get_latest_id(client: HabrClient) -> int:
-    response = await client.request("https://habr.com/kek/v2/articles/?period=daily&sort=date&page=1")
+    response = await client.request("https://habr.com/ru/rss/articles/")
     response.raise_for_status()
-    data = response.json()
-    return max(int(article_id) for article_id in data["publicationIds"])
+
+    article_ids: list[int] = []
+    try:
+        root = ET.fromstring(response.text)
+        for link in root.findall(".//item/link"):
+            if link.text:
+                article_ids.extend(int(value) for value in re.findall(r"/articles/(\d+)", link.text))
+    except ET.ParseError:
+        article_ids.extend(int(value) for value in re.findall(r"/articles/(\d+)", response.text))
+
+    if not article_ids:
+        raise RuntimeError("Could not determine the latest Habr article ID")
+    return max(article_ids)
