@@ -49,7 +49,10 @@ class HabrClient:
             try:
                 async with self.semaphore:
                     response = await self.client.get(url)
-            except (httpx.TimeoutException, httpx.TransportError) as error:
+            except (
+                httpx.TimeoutException,
+                httpx.TransportError,
+            ) as error:
                 last_error = error
                 if attempt >= self.retries:
                     raise
@@ -60,7 +63,10 @@ class HabrClient:
                 retry_after = response.headers.get("Retry-After")
                 if attempt >= self.retries:
                     response.raise_for_status()
-                delay = float(retry_after) if retry_after and retry_after.isdigit() else min(1.0 * (2**attempt), 8.0)
+                if retry_after and retry_after.isdigit():
+                    delay = float(retry_after)
+                else:
+                    delay = min(1.0 * (2**attempt), 8.0)
                 await asyncio.sleep(delay)
                 continue
 

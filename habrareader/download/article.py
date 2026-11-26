@@ -15,11 +15,12 @@ from habrareader.download.client import HabrClient
 
 
 async def get_article(id_: int, client: HabrClient) -> Article:
-    response = await client.request(f"https://habr.com/kek/v2/articles/{id_}")
+    url = f"https://habr.com/kek/v2/articles/{id_}"
+    response = await client.request(url)
     downloaded_at = int(datetime.datetime.now().timestamp())
 
     if response.status_code != 200:
-        article = Article(id=id_) 
+        article = Article(id=id_)
         article.state = ArticleState(
             id=id_,
             published_at=None,
@@ -29,7 +30,11 @@ async def get_article(id_: int, client: HabrClient) -> Article:
         return article
 
     data = response.json()
-    published_at = int(datetime.datetime.fromisoformat(data["timePublished"]).timestamp())
+    published_at = int(
+        datetime.datetime
+        .fromisoformat(data["timePublished"])
+        .timestamp()
+    )
 
     author_data = data["author"]
     if author_data is None:
@@ -103,7 +108,8 @@ async def get_article(id_: int, client: HabrClient) -> Article:
 
 
 async def get_latest_id(client: HabrClient) -> int:
-    response = await client.request("https://habr.com/ru/rss/articles/")
+    url = "https://habr.com/ru/rss/articles/"
+    response = await client.request(url)
     response.raise_for_status()
 
     article_ids: list[int] = []
@@ -111,9 +117,15 @@ async def get_latest_id(client: HabrClient) -> int:
         root = ET.fromstring(response.text)
         for link in root.findall(".//item/link"):
             if link.text:
-                article_ids.extend(int(value) for value in re.findall(r"/articles/(\d+)", link.text))
+                article_ids.extend(
+                    int(value)
+                    for value in re.findall(r"/articles/(\d+)", link.text)
+                )
     except ET.ParseError:
-        article_ids.extend(int(value) for value in re.findall(r"/articles/(\d+)", response.text))
+        article_ids.extend(
+            int(value)
+            for value in re.findall(r"/articles/(\d+)", response.text)
+        )
 
     if not article_ids:
         raise RuntimeError("Could not determine the latest Habr article ID")

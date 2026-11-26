@@ -9,8 +9,12 @@ from habrareader.data.model import (
 from habrareader.download.client import HabrClient
 
 
-async def get_article_comments(article_id: int, client: HabrClient) -> list[ArticleComment]:
-    response = await client.request(f"https://habr.com/kek/v2/articles/{article_id}/comments")
+async def get_article_comments(
+    article_id: int,
+    client: HabrClient,
+) -> list[ArticleComment]:
+    url = f"https://habr.com/kek/v2/articles/{article_id}/comments"
+    response = await client.request(url)
     if response.status_code != 200:
         return []
 
@@ -29,10 +33,13 @@ async def get_article_comments(article_id: int, client: HabrClient) -> list[Arti
             )
 
         numeric_comment_id = int(comment_id)
+        published_at = datetime.datetime.fromisoformat(
+            comment_data["timePublished"]
+        ).timestamp()
         comment = ArticleComment(
             id=numeric_comment_id,
             article_id=article_id,
-            time_published=int(datetime.datetime.fromisoformat(comment_data["timePublished"]).timestamp()),
+            time_published=int(published_at),
         )
         comment.contents = CommentContents(
             comment_id=numeric_comment_id,

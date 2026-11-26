@@ -15,7 +15,10 @@ from habrareader.download.comment import get_article_comments
 from habrareader.download.database_helpers import save_download
 
 
-async def fetch_one(article_id: int, client: HabrClient):
+async def fetch_one(
+    article_id: int,
+    client: HabrClient,
+):
     article = await get_article(article_id, client)
     comments = None
     if article.state is not None and article.state.is_success:
@@ -41,15 +44,26 @@ async def run(
             if only_missing:
                 start_id = 1
             else:
-                result = await session.execute(select(Article.id).order_by(Article.id.desc()).limit(1))
+                result = await session.execute(
+                    select(Article.id)
+                    .order_by(Article.id.desc())
+                    .limit(1)
+                )
                 latest = result.scalar_one_or_none()
                 start_id = (latest or 0) + 1
 
-        client = HabrClient(requests_per_second=requests_per_second, concurrency=concurrency)
+        client = HabrClient(
+            requests_per_second=requests_per_second,
+            concurrency=concurrency,
+        )
         try:
             if end_id is None:
                 if only_missing:
-                    result = await session.execute(select(Article.id).order_by(Article.id.desc()).limit(1))
+                    result = await session.execute(
+                        select(Article.id)
+                        .order_by(Article.id.desc())
+                        .limit(1)
+                    )
                     end_id = result.scalar_one_or_none() or 0
                 else:
                     end_id = await get_latest_id(client)
@@ -73,17 +87,29 @@ async def run(
             batch_size = max(concurrency * 2, 1)
             for offset in range(0, len(ids), batch_size):
                 batch = ids[offset:offset + batch_size]
-                print("Downloading:", ", ".join(f"#{article_id}" for article_id in batch))
-                results = await asyncio.gather(*(fetch_one(article_id, client) for article_id in batch))
+                labels = ", ".join(f"#{article_id}" for article_id in batch)
+                print("Downloading:", labels)
+                tasks = (
+                    fetch_one(article_id, client)
+                    for article_id in batch
+                )
+                results = await asyncio.gather(*tasks)
 
                 for article, comments in results:
                     article_id = article.id
-                    if article.state is not None and article.state.is_success:
+                    if (
+                        article.state is not None
+                        and article.state.is_success
+                    ):
                         print(f"#{article_id}: Success")
                     else:
                         print(f"#{article_id}: Failed")
                     async with session_factory() as write_session:
-                        await save_download(write_session, article, comments)
+                        await save_download(
+                            write_session,
+                            article,
+                            comments,
+                        )
         finally:
             await client.close()
 

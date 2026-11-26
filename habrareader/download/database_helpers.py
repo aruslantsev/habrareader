@@ -12,9 +12,10 @@ async def save_download(
     merged = await session.merge(article)
 
     if comments is not None:
-        await session.execute(
-            delete(ArticleComment).where(ArticleComment.article_id == merged.id)
+        delete_statement = delete(ArticleComment).where(
+            ArticleComment.article_id == merged.id
         )
+        await session.execute(delete_statement)
         await session.flush()
 
         for comment in comments:

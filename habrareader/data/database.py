@@ -8,6 +8,9 @@ from sqlalchemy.ext.asyncio import (
 from habrareader.data.model import Base
 
 
+SQLITE_CONNECTION = "database.sqlite"
+
+
 def create_database_engine(database_url: str | None = None) -> AsyncEngine:
     url = database_url or f"sqlite+aiosqlite:///{SQLITE_CONNECTION}"
     return create_async_engine(url, future=True)
