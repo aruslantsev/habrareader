@@ -60,12 +60,12 @@ Control HTTP behavior:
 
 Available options:
 
-- `--start-id`: first article ID
-- `--end-id`: final article ID
+- `--start-id`: first article ID; must be positive
+- `--end-id`: final article ID; must be positive
 - `--reverse`: process IDs newest-to-oldest
 - `--only-missing`: process articles whose state is unsuccessful
-- `--requests-per-second`: shared request rate, default `5`
-- `--concurrency`: maximum concurrent HTTP requests, default `10`
+- `--requests-per-second`: shared request rate; must be positive
+- `--concurrency`: maximum concurrent HTTP requests; must be positive
 
 ## Database
 
@@ -90,7 +90,7 @@ The SQLAlchemy metadata is canonical in
   retry policy, and rate limiter.
 - `habrareader/download/database_helpers.py` merges downloaded ORM graphs
   and refreshes comments transactionally.
-- `habrareader/download.py` schedules bounded concurrent downloads and
+- `habrareader/download/cli.py` schedules bounded concurrent downloads and
   serializes database writes.
 
 ## Development

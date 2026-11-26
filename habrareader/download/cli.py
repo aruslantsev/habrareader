@@ -35,6 +35,18 @@ async def run(
     requests_per_second: float = 5.0,
     concurrency: int = 10,
 ):
+    if requests_per_second <= 0:
+        raise ValueError("requests_per_second must be positive")
+    if concurrency <= 0:
+        raise ValueError("concurrency must be positive")
+    if start_id is not None and start_id < 1:
+        raise ValueError("start_id must be positive")
+    if end_id is not None and end_id < 1:
+        raise ValueError("end_id must be positive")
+    if start_id is not None and end_id is not None:
+        if start_id > end_id:
+            raise ValueError("start_id must not exceed end_id")
+
     engine = create_database_engine()
     await initialize_database(engine)
     session_factory = create_session_factory(engine)
@@ -67,6 +79,10 @@ async def run(
                     end_id = result.scalar_one_or_none() or 0
                 else:
                     end_id = await get_latest_id(client)
+
+            if end_id < start_id:
+                raise ValueError("start_id must not exceed end_id")
+
             print(f"Start ID: {start_id}. End ID: {end_id}")
 
             if only_missing:
@@ -125,6 +141,21 @@ def main():
     parser.add_argument("--requests-per-second", type=float, default=5.0)
     parser.add_argument("--concurrency", type=int, default=10)
     args = parser.parse_args()
+
+    if args.requests_per_second <= 0:
+        parser.error("--requests-per-second must be positive")
+    if args.concurrency <= 0:
+        parser.error("--concurrency must be positive")
+    if args.start_id is not None and args.start_id < 1:
+        parser.error("--start-id must be positive")
+    if args.end_id is not None and args.end_id < 1:
+        parser.error("--end-id must be positive")
+    if (
+        args.start_id is not None
+        and args.end_id is not None
+        and args.start_id > args.end_id
+    ):
+        parser.error("--start-id must not exceed --end-id")
 
     asyncio.run(run(
         only_missing=args.only_missing,

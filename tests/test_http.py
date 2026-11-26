@@ -170,6 +170,36 @@ async def test_retry_after_transient_server_error(monkeypatch):
         await client.close()
 
 
+def test_cli_rejects_zero_concurrency(monkeypatch, capsys):
+    from habrareader.download.cli import main
+
+    monkeypatch.setattr(
+        "sys.argv",
+        ["habrareader", "--concurrency", "0"],
+    )
+
+    with pytest.raises(SystemExit) as error:
+        main()
+
+    assert error.value.code == 2
+    assert "--concurrency must be positive" in capsys.readouterr().err
+
+
+def test_cli_rejects_reversed_range(monkeypatch, capsys):
+    from habrareader.download.cli import main
+
+    monkeypatch.setattr(
+        "sys.argv",
+        ["habrareader", "--start-id", "20", "--end-id", "10"],
+    )
+
+    with pytest.raises(SystemExit) as error:
+        main()
+
+    assert error.value.code == 2
+    assert "--start-id must not exceed --end-id" in capsys.readouterr().err
+
+
 @pytest.mark.asyncio
 async def test_rate_limiter_requires_positive_rate():
     with pytest.raises(ValueError):

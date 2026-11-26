@@ -12,6 +12,7 @@ from habrareader.data.model import (
     ArticleComment,
     ArticleState,
     CommentContents,
+    Tag,
 )
 
 
@@ -102,5 +103,40 @@ async def test_comment_graph_is_saved():
         )
         stored = result.scalar_one()
         assert stored.id == 654
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_existing_tag_is_reused():
+    engine = create_database_engine("sqlite+aiosqlite:///:memory:")
+    await initialize_database(engine)
+    factory = create_session_factory(engine)
+
+    article = Article(id=322)
+    article.state = ArticleState(
+        id=322,
+        published_at=100,
+        updated_at=100,
+        is_success=True,
+    )
+
+    async with factory() as session:
+        existing = Tag(title_html="Python")
+        session.add(existing)
+        await session.commit()
+
+    article.tags = [Tag(title_html="Python")]
+
+    async with factory() as session:
+        from habrareader.download.database_helpers import save_download
+
+        await save_download(session, article)
+
+    async with factory() as session:
+        result = await session.execute(
+            select(Tag).where(Tag.title_html == "Python")
+        )
+        assert result.scalar_one().id is not None
 
     await engine.dispose()
