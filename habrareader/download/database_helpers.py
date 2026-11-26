@@ -36,165 +36,115 @@ from habrareader.data.columns import (
     FLOW_ID,
     COMMENT_ID,
 )
-from sqlite3 import Cursor
+from sqlalchemy import delete, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
-def save_article(article: Article, cursor: Cursor):
-    data = [(
-        article.id_,
-        article.time_downloaded,
-        article.time_published,
-        article.is_success,
-    )]
-    cursor.execute(f"DELETE FROM {ARTICLE_TBL} WHERE {ID} = {article.id_}")
-    cursor.executemany(f"INSERT INTO {ARTICLE_TBL} VALUES (?, ?, ?, ?)", data)
+async def save_download(session: AsyncSession, article_data: ArticleData, comments_data: CommentsData | None = None) -> None:
+    dto = article_data.article
+    article = await session.get(ORMArticle, dto.id_)
+    if article is None:
+        article = ORMArticle(id=dto.id_)
 
-
-def save_article_contents(article_contents: ArticleContents, cursor: Cursor):
-    data = [(
-        article_contents.id_,
-        article_contents.lang,
-        article_contents.title,
-        article_contents.author_id,
-        article_contents.text_html,
-        article_contents.lead_data,
-        article_contents.is_corporative,
-        article_contents.original_url,
-    )]
-    cursor.execute(f"DELETE FROM {ARTICLE_CONTENTS_TBL} WHERE {ID} = {article_contents.id_}")
-    cursor.executemany(f"INSERT INTO {ARTICLE_CONTENTS_TBL} VALUES (?, ?, ?, ?, ?, ?, ?, ?)", data)
-
-
-def save_author(author: Author, cursor: Cursor):
-    data = [(
-        author.author_id,
-        author.alias,
-        author.full_name,
-    )]
-    cursor.execute(f"DELETE FROM {AUTHOR_TBL} WHERE {AUTHOR_ID} = {author.author_id}")
-    cursor.executemany(f"INSERT INTO {AUTHOR_TBL} VALUES (?, ?, ?)", data)
-
-
-def save_article_statistics(article_statistics: ArticleStatistics, cursor: Cursor):
-    data = [(
-        article_statistics.id_,
-        article_statistics.num_comments,
-        article_statistics.num_readings,
-        article_statistics.score,
-        article_statistics.votes,
-        article_statistics.votes_positive,
-        article_statistics.votes_negative,
-    )]
-    cursor.execute(f"DELETE FROM {ARTICLE_STATISTICS_TBL} WHERE {ID} = {article_statistics.id_}")
-    cursor.executemany(f"INSERT INTO {ARTICLE_STATISTICS_TBL} VALUES (?, ?, ?, ?, ?, ?, ?)", data)
-
-
-def save_article_hubs(article_hubs: Iterable[ArticleHub], cursor: Cursor):
-    data = [(hub.id_, hub.hub_id) for hub in article_hubs]
-    article_id = set(hub.id_ for hub in article_hubs)
-    if len(article_id) > 1:
-        raise ValueError(f"Multiple article ids: {article_id}")
-    if len(article_id) == 1:
-        article_id = article_id.pop()
-        cursor.execute(f"DELETE FROM {ARTICLE_HUB_TBL} WHERE {ID} = {article_id}")
-    cursor.executemany(f"INSERT INTO {ARTICLE_HUB_TBL} VALUES (?, ?)", data)
-
-
-def save_article_tags(article_tags: Iterable[ArticleTag], cursor: Cursor):
-    data = [(tag.id_, tag.tag_title_html) for tag in article_tags]
-    article_id = set(tag.id_ for tag in article_tags)
-    if len(article_id) > 1:
-        raise ValueError(f"Multiple article ids: {article_id}")
-    if len(article_id) == 1:
-        article_id = article_id.pop()
-        cursor.execute(f"DELETE FROM {ARTICLE_TAG_TBL} WHERE {ID} = {article_id}")
-    cursor.executemany(f"INSERT INTO {ARTICLE_TAG_TBL} VALUES (?, ?)", data)
-
-
-def save_article_flows(article_flows: Iterable[ArticleFlow], cursor: Cursor):
-    data = [(flow.id_, flow.flow_id) for flow in article_flows]
-    article_id = set(flow.id_ for flow in article_flows)
-    if len(article_id) > 1:
-        raise ValueError(f"Multiple article ids: {article_id}")
-    if len(article_id) == 1:
-        article_id = article_id.pop()
-        cursor.execute(f"DELETE FROM {ARTICLE_FLOW_TBL} WHERE {ID} = {article_id}")
-    cursor.executemany(f"INSERT INTO {ARTICLE_FLOW_TBL} VALUES (?, ?)", data)
-
-
-def save_hub(hub: Hub, cursor: Cursor):
-    data = [(
-        hub.hub_id,
-        hub.hub_alias,
-        hub.hub_type,
-        hub.hub_title,
-        hub.hub_title_html,
-    )]
-    cursor.execute(f"DELETE FROM {HUB_TBL} WHERE {HUB_ID} = {hub.hub_id}")
-    cursor.executemany(f"INSERT INTO {HUB_TBL} VALUES (?, ?, ?, ?, ?)", data)
-
-
-def save_flow(flow: Flow, cursor: Cursor):
-    data = [(
-        flow.flow_id,
-        flow.flow_alias,
-        flow.flow_title,
-        flow.flow_title_html,
-    )]
-    cursor.execute(f"DELETE FROM {FLOW_TBL} WHERE {FLOW_ID} = {flow.flow_id}")
-    cursor.executemany(f"INSERT INTO {FLOW_TBL} VALUES (?, ?, ?, ?)", data)
-
-
-def save_article_comments(article_comments: Iterable[ArticleComment], cursor: Cursor):
-    data = [(
-        comment.id_,
-        comment.comment_id,
-        comment.time_published,
-    ) for comment in article_comments]
-    article_id = set(comment.id_ for comment in article_comments)
-    if len(article_id) > 1:
-        raise ValueError(f"Multiple article ids: {article_id}")
-    if len(article_id) == 1:
-        article_id = article_id.pop()
-        cursor.execute(f"DELETE FROM {ARTICLE_COMMENT_TBL} WHERE {ID} = {article_id}")
-    cursor.executemany(f"INSERT INTO {ARTICLE_COMMENT_TBL} VALUES (?, ?, ?)", data)
-
-
-def save_comment_contents(comment_contents: CommentContents, cursor: Cursor):
-    data = [(
-        comment_contents.comment_id,
-        comment_contents.score,
-        comment_contents.votes_count,
-        comment_contents.message,
-        comment_contents.author_id,
-    )]
-    cursor.execute(
-        f"DELETE FROM {COMMENT_CONTENTS_TBL} WHERE {COMMENT_ID} = {comment_contents.comment_id}"
+    article.state = ArticleState(
+        id=dto.id_,
+        published_at=dto.time_published,
+        updated_at=dto.time_downloaded,
+        is_success=dto.is_success == 1,
     )
-    cursor.executemany(f"INSERT INTO {COMMENT_CONTENTS_TBL} VALUES (?, ?, ?, ?, ?)", data)
 
+    if dto.is_success == 1:
+        contents = article_data.article_contents
+        author = article_data.author
+        orm_author = await session.get(ORMAuthor, author.author_id)
+        if orm_author is None:
+            orm_author = ORMAuthor(id=author.author_id)
+        orm_author.alias = author.alias
+        orm_author.full_name = author.full_name
+        session.add(orm_author)
 
-def save_comment_child(comment_child: CommentChild, cursor: Cursor):
-    data = [(
-        comment_child.comment_id, comment_child.child_comment_id
-    )]
-    cursor.execute(
-        f"DELETE FROM {COMMENT_CHILD_TBL} WHERE {COMMENT_ID} = {comment_child.comment_id}"
-    )
-    cursor.executemany(f"INSERT INTO {COMMENT_CHILD_TBL} VALUES (?, ?)", data)
+        article.language = contents.lang
+        article.title = contents.title
+        article.text_html = contents.text_html
+        article.lead_data = contents.lead_data
+        article.is_corporative = contents.is_corporative == 1
+        article.is_translation = getattr(contents, "is_translation", False)
+        article.original_url = contents.original_url
+        article.author = orm_author
 
+        statistics = article_data.article_statistics
+        article.statistics = ORMArticleStatistics(
+            id=statistics.id_,
+            num_comments=statistics.num_comments,
+            num_readings=statistics.num_readings,
+            score=statistics.score,
+            votes=statistics.votes,
+            votes_positive=statistics.votes_positive,
+            votes_negative=statistics.votes_negative,
+        )
 
-def clean_comments(article_comments: Iterable[ArticleComment], cursor: Cursor):
-    article_id = set(comment.id_ for comment in article_comments)
-    if len(article_id) == 0:
-        # already clean
-        return
-    if len(article_id) != 1:
-        raise ValueError(f"Multiple article ids: {article_id}")
-    article_id = article_id.pop()
-    query = f"SELECT {COMMENT_ID} FROM {ARTICLE_COMMENT_TBL} WHERE {ID} = {article_id}"
-    cursor.execute(query)
-    old_ids = [row[0] for row in cursor.fetchall()]
-    for comment_id in old_ids:
-        cursor.execute(f"DELETE from {COMMENT_CONTENTS_TBL} WHERE {COMMENT_ID} = {comment_id}")
-        cursor.execute(f"DELETE FROM {COMMENT_CHILD_TBL} WHERE {COMMENT_ID} = {comment_id}")
+        hubs = []
+        for hub_data in article_data.hubs:
+            hub = await session.get(Hub, hub_data.hub_id)
+            if hub is None:
+                hub = Hub(id=hub_data.hub_id)
+            hub.alias = hub_data.hub_alias
+            hub.type = hub_data.hub_type
+            hub.title = hub_data.hub_title
+            hub.title_html = hub_data.hub_title_html
+            hubs.append(hub)
+        article.hubs = hubs
+
+        flows = []
+        for flow_data in article_data.flows:
+            flow = await session.get(Flow, flow_data.flow_id)
+            if flow is None:
+                flow = Flow(id=flow_data.flow_id)
+            flow.alias = flow_data.flow_alias
+            flow.title = flow_data.flow_title
+            flow.title_html = flow_data.flow_title_html
+            flows.append(flow)
+        article.flows = flows
+
+        tags = []
+        for tag_data in article_data.article_tags:
+            result = await session.execute(select(Tag).where(Tag.title_html == tag_data.tag_title_html))
+            tag = result.scalar_one_or_none()
+            if tag is None:
+                tag = Tag(title_html=tag_data.tag_title_html)
+            tags.append(tag)
+        article.tags = tags
+
+    session.add(article)
+    await session.flush()
+
+    if dto.is_success == 1 and comments_data is not None:
+        await session.execute(delete(ORMArticleComment).where(ORMArticleComment.article_id == dto.id_))
+
+        for author in comments_data.authors:
+            orm_author = await session.get(ORMAuthor, author.author_id)
+            if orm_author is None:
+                orm_author = ORMAuthor(id=author.author_id)
+            orm_author.alias = author.alias
+            orm_author.full_name = author.full_name
+            session.add(orm_author)
+
+        for comment in comments_data.comments:
+            orm_comment = ORMArticleComment(id=comment.comment_id, article_id=dto.id_, time_published=comment.time_published)
+            session.add(orm_comment)
+
+        await session.flush()
+
+        for contents in comments_data.comments_contents:
+            session.add(CommentContents(
+                comment_id=contents.comment_id,
+                score=int(contents.score),
+                votes_count=int(contents.votes_count),
+                message=contents.message,
+                author_id=contents.author_id,
+            ))
+
+        for child in comments_data.comments_children:
+            session.add(CommentChild(comment_id=child.comment_id, child_comment_id=child.child_comment_id))
+
+    await session.commit()

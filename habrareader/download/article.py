@@ -1,7 +1,5 @@
 import datetime
 
-import requests
-
 from habrareader.data import (
     Article,
     ArticleContents,
@@ -15,112 +13,75 @@ from habrareader.data import (
     ArticleData,
 )
 from habrareader.data.author import default_author
+from habrareader.download.client import HabrClient
 
 
-def get_article(id_: int) -> ArticleData:
+async def get_article(id_: int, client: HabrClient) -> ArticleData:
     current_time = int(datetime.datetime.now().timestamp())
-    with (requests.get(f"https://habr.com/kek/v2/articles/{id_}") as req):
-        if req.status_code != 200:
-            article = Article(
-                id_=int(id_),
-                time_downloaded=current_time,
-                time_published=None,
-                is_success=0,
-            )
-            return ArticleData(article=article)
-        data = req.json()
-        article = Article(
-            id_=int(id_),
-            time_downloaded=current_time,
-            time_published=int(datetime.datetime.fromisoformat(data["timePublished"]).timestamp()),
-            is_success=1,
-        )
-        original_url = None
-        for post_label in data["postLabels"]:
-            if post_label["type"] == "translation":
-                original_url = post_label["data"]["originalUrl"]
-        if data["author"] is None:
-            data["author"] = default_author
-        article_contents = ArticleContents(
-            id_=int(id_),
-            lang=data["lang"],
-            title=data["titleHtml"],
-            author_id=int(data["author"]["id"]),
-            text_html=data["textHtml"],
-            lead_data=data["leadData"]["textHtml"],
-            is_corporative=1 if data["isCorporative"] else 0,
-            original_url=original_url,
-        )
-        author = Author(
-            author_id=int(data["author"]["id"]),
-            alias=data["author"]["alias"],
-            full_name=data["author"]["fullname"],
-        )
-        article_statistics = ArticleStatistics(
-            id_=int(id_),
-            num_comments=data["statistics"]["commentsCount"],
-            num_readings=data["statistics"]["readingCount"],
-            score=data["statistics"]["score"],
-            votes=data["statistics"]["votesCount"],
-            votes_positive=data["statistics"]["votesCountPlus"],
-            votes_negative=data["statistics"]["votesCountMinus"],
-        )
-        article_hubs = []
-        hubs = []
-        for hub in data["hubs"]:
-            article_hubs.append(
-                ArticleHub(
-                    id_=int(id_),
-                    hub_id=int(hub["id"]),
-                )
-            )
-            hubs.append(
-                Hub(
-                    hub_id=int(hub["id"]),
-                    hub_alias=hub["alias"],
-                    hub_type=hub["type"],
-                    hub_title=hub["title"],
-                    hub_title_html=hub["titleHtml"],
-                )
-            )
-        article_tags = [
-            ArticleTag(id_=int(id_), tag_title_html=tag["titleHtml"]) for tag in data["tags"]
-        ]
-        article_flows = []
-        flows = []
-        for flow in data["flows"]:
-            article_flows.append(
-                ArticleFlow(
-                    id_=int(id_),
-                    flow_id=int(flow["id"]),
-                )
-            )
-            flows.append(
-                Flow(
-                    flow_id=int(flow["id"]),
-                    flow_alias=flow["alias"],
-                    flow_title=flow["title"],
-                    flow_title_html=flow["titleHtml"],
-                )
-            )
+    response = await client.request(f"https://habr.com/kek/v2/articles/{id_}")
+    if response.status_code != 200:
         return ArticleData(
-            article=article,
-            article_contents=article_contents,
-            author=author,
-            article_statistics=article_statistics,
-            article_hubs=article_hubs,
-            article_tags=article_tags,
-            article_flows=article_flows,
-            hubs=hubs,
-            flows=flows,
+            article=Article(id_=id_, time_downloaded=current_time, time_published=None, is_success=0)
         )
 
+    data = response.json()
+    published = int(datetime.datetime.fromisoformat(data["timePublished"]).timestamp())
+    article = Article(id_=id_, time_downloaded=current_time, time_published=published, is_success=1)
 
-def get_latest_id():
-    with requests.get(
-        "https://habr.com/kek/v2/articles/?period=daily&sort=date&page=1",
-        headers={"Accept-Language": "ru,en-US;q=0.7,en;q=0.3",}
-    ) as req:
-        req.raise_for_status()
-        data = req.json()
-        return max([int(id_) for id_ in data["publicationIds"]])
+    original_url = None
+    is_translation = False
+    for post_label in data["postLabels"]:
+        if post_label["type"] == "translation":
+            is_translation = True
+            original_url = post_label["data"].get("originalUrl")
+
+    author_data = data["author"] or default_author
+    article_contents = ArticleContents(
+        id_=id_,
+        lang=data["lang"],
+        title=data["titleHtml"],
+        author_id=int(author_data["id"]),
+        text_html=data["textHtml"] or "",
+        lead_data=(data["leadData"] or {}).get("textHtml") or "",
+        is_corporative=1 if data["isCorporative"] else 0,
+        original_url=original_url,
+    )
+    author = Author(author_id=int(author_data["id"]), alias=author_data["alias"], full_name=author_data["fullname"])
+    statistics = data["statistics"]
+    article_statistics = ArticleStatistics(
+        id_=id_,
+        num_comments=statistics["commentsCount"],
+        num_readings=statistics["readingCount"],
+        score=statistics["score"],
+        votes=statistics["votesCount"],
+        votes_positive=statistics["votesCountPlus"],
+        votes_negative=statistics["votesCountMinus"],
+    )
+
+    article_hubs = [ArticleHub(id_=id_, hub_id=int(hub["id"])) for hub in data["hubs"]]
+    hubs = [Hub(hub_id=int(hub["id"]), hub_alias=hub["alias"], hub_type=hub["type"], hub_title=hub["title"], hub_title_html=hub["titleHtml"]) for hub in data["hubs"]]
+    article_tags = [ArticleTag(id_=id_, tag_title_html=tag["titleHtml"]) for tag in data["tags"]]
+    article_flows = [ArticleFlow(id_=id_, flow_id=int(flow["id"])) for flow in data["flows"]]
+    flows = [Flow(flow_id=int(flow["id"]), flow_alias=flow["alias"], flow_title=flow["title"], flow_title_html=flow["titleHtml"]) for flow in data["flows"]]
+
+    # Attach translation metadata to a transient attribute consumed by the ORM mapper.
+    setattr(article_contents, "is_translation", is_translation)
+
+    return ArticleData(
+        article=article,
+        article_contents=article_contents,
+        author=author,
+        article_statistics=article_statistics,
+        article_hubs=article_hubs,
+        article_tags=article_tags,
+        article_flows=article_flows,
+        hubs=hubs,
+        flows=flows,
+    )
+
+
+async def get_latest_id(client: HabrClient) -> int:
+    response = await client.request("https://habr.com/kek/v2/articles/?period=daily&sort=date&page=1")
+    response.raise_for_status()
+    data = response.json()
+    return max(int(article_id) for article_id in data["publicationIds"])

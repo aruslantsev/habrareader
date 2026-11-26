@@ -1,59 +1,50 @@
 import datetime
 
-import requests
-
 from habrareader.data import ArticleComment, CommentContents, CommentChild, Author, CommentsData
 from habrareader.data.author import default_author
+from habrareader.download.client import HabrClient
 
 
-def get_article_comments(id_: int) -> CommentsData:
-    with requests.get(f"https://habr.com/kek/v2/articles/{id_}/comments", ) as req:
-        if req.status_code != 200:
-            return CommentsData(
-                comments=[],
-                comments_contents=[],
-                authors=[],
-                comments_children=[],
-            )
-        data = req.json()
-        comments = []
-        comments_contents = []
-        authors = []
-        comments_children = []
-        for comment_id, comment_data in data["comments"].items():
-            if comment_data["author"] is None:
-                comment_data["author"] = default_author
-            comment = ArticleComment(
-                id_=int(id_),
-                comment_id=int(comment_id),
-                time_published=int(
-                    datetime.datetime.fromisoformat(comment_data["timePublished"]).timestamp()
-                ),
-            )
-            comment_contents = CommentContents(
-                comment_id=int(comment_id),
-                score=comment_data["score"],
-                votes_count=comment_data["votesCount"],
-                message=comment_data["message"],
-                author_id=int(comment_data["author"]["id"]),
-            )
-            author = Author(
-                author_id=int(comment_data["author"]["id"]),
-                alias=comment_data["author"]["alias"],
-                full_name=comment_data["author"]["fullname"],
-            )
-            comment_children = [
-                CommentChild(
-                    comment_id=int(comment_id), child_comment_id=int(child_id)
-                ) for child_id in comment_data["children"]
-            ]
-            comments.append(comment)
-            comments_contents.append(comment_contents)
-            authors.append(author)
-            comments_children.extend(comment_children)
-        return CommentsData(
-            comments=comments,
-            comments_contents=comments_contents,
-            authors=list(set(authors)),
-            comments_children=comments_children,
+async def get_article_comments(id_: int, client: HabrClient) -> CommentsData:
+    response = await client.request(f"https://habr.com/kek/v2/articles/{id_}/comments")
+    if response.status_code != 200:
+        return CommentsData()
+
+    data = response.json()
+    comments: list[ArticleComment] = []
+    contents: list[CommentContents] = []
+    authors: dict[int, Author] = {}
+    children: list[CommentChild] = []
+
+    for comment_id, comment_data in data["comments"].items():
+        author_data = comment_data["author"] or default_author
+        author_id = int(author_data["id"])
+        authors[author_id] = Author(
+            author_id=author_id,
+            alias=author_data["alias"],
+            full_name=author_data["fullname"],
         )
+        numeric_comment_id = int(comment_id)
+        comments.append(ArticleComment(
+            id_=id_,
+            comment_id=numeric_comment_id,
+            time_published=int(datetime.datetime.fromisoformat(comment_data["timePublished"]).timestamp()),
+        ))
+        contents.append(CommentContents(
+            comment_id=numeric_comment_id,
+            score=str(comment_data["score"]),
+            votes_count=str(comment_data["votesCount"]),
+            message=comment_data["message"] or "",
+            author_id=author_id,
+        ))
+        children.extend(
+            CommentChild(comment_id=numeric_comment_id, child_comment_id=int(child_id))
+            for child_id in comment_data["children"]
+        )
+
+    return CommentsData(
+        comments=comments,
+        comments_contents=contents,
+        authors=list(authors.values()),
+        comments_children=children,
+    )

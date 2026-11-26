@@ -1,162 +1,112 @@
-import sqlite3
+import asyncio
 from argparse import ArgumentParser
 
-from habrareader.data.tables import ARTICLE_TBL
-from habrareader.data.tddl import create_tables
+from sqlalchemy import select
+
+from habrareader.data.database import create_database_engine, initialize_database, create_session_factory
+from habrareader.data.model import Article, ArticleState
 from habrareader.download.article import get_article, get_latest_id
+from habrareader.download.client import HabrClient
 from habrareader.download.comment import get_article_comments
-from habrareader.download.database_helpers import (
-    save_article,
-    save_article_contents,
-    save_author,
-    save_article_statistics,
-    save_article_hubs,
-    save_article_tags,
-    save_article_flows,
-    save_hub,
-    save_flow,
-    save_article_comments,
-    save_comment_contents,
-    save_comment_child,
-    clean_comments,
-)
-from habrareader.data.columns import ID, IS_SUCCESS
+from habrareader.download.database_helpers import save_download
+
 
 SQLITE_CONNECTION = "database.sqlite"
 
 
-def run(
+async def fetch_one(article_id: int, client: HabrClient):
+    article_data = await get_article(article_id, client)
+    comments_data = None
+    if article_data.article.is_success:
+        comments_data = await get_article_comments(article_id, client)
+    return article_data, comments_data
+
+
+async def run(
     only_missing: bool,
-    start_id: int,
-    end_id: int,
+    start_id: int | None,
+    end_id: int | None,
     reverse: bool,
+    *,
+    requests_per_second: float = 5.0,
+    concurrency: int = 10,
 ):
-    with sqlite3.connect(SQLITE_CONNECTION) as connection:
-        create_tables(connection=connection)
-        connection.commit()
+    engine = create_database_engine()
+    await initialize_database(engine)
+    session_factory = create_session_factory(engine)
 
-        cursor = connection.cursor()
-
+    async with session_factory() as session:
         if start_id is None:
             if only_missing:
                 start_id = 1
             else:
-                cursor.execute(f"SELECT max({ID}) FROM {ARTICLE_TBL}")
-                start_id = cursor.fetchall()[0][0]
-                if start_id is None:
-                    start_id = 0
-                start_id += 1
+                result = await session.execute(select(Article.id).order_by(Article.id.desc()).limit(1))
+                latest = result.scalar_one_or_none()
+                start_id = (latest or 0) + 1
 
-        if end_id is None:
-            if only_missing:
-                cursor.execute(f"SELECT max({ID}) FROM {ARTICLE_TBL}")
-                end_id = cursor.fetchall()[0][0]
-                if end_id is None:
-                    end_id = 0
-            else:
-                end_id = get_latest_id()
-        print(f"Start ID: {start_id}. End ID: {end_id}")
-
-        if only_missing:
-            query = f"SELECT id FROM {ARTICLE_TBL} WHERE {IS_SUCCESS} = 0 AND {ID} >= {start_id} AND {ID} <= {end_id}"
-            cursor.execute(query)
-            ids = sorted([row[0] for row in cursor.fetchall()])
-        else:
-            cursor.execute(f"SELECT id FROM {ARTICLE_TBL} WHERE {IS_SUCCESS} = 0")
-            ids = list(range(start_id, end_id + 1))
-        if reverse:
-            ids = ids[::-1]
-
+        client = HabrClient(requests_per_second=requests_per_second, concurrency=concurrency)
         try:
-            for id_ in ids:
-                print(f"Downloading article #{id_}...")
-                article_data = get_article(id_)
-                cursor.execute(f"SELECT {IS_SUCCESS} FROM {ARTICLE_TBL} WHERE {ID} = {id_}")
-                was_success = cursor.fetchall()
-                if len(was_success) == 0:
-                    was_success = 0
+            if end_id is None:
+                if only_missing:
+                    result = await session.execute(select(Article.id).order_by(Article.id.desc()).limit(1))
+                    end_id = result.scalar_one_or_none() or 0
                 else:
-                    was_success = was_success[0][0]
-                if article_data.article.is_success != 0:
-                    comments_data = get_article_comments(id_)
-                    print("Success")
-                    save_article(article_data.article, cursor=cursor)
-                    save_article_contents(article_data.article_contents, cursor=cursor)
-                    save_author(article_data.author, cursor=cursor)
-                    save_article_statistics(article_data.article_statistics, cursor=cursor)
-                    save_article_hubs(article_data.article_hubs, cursor=cursor)
-                    save_article_tags(article_data.article_tags, cursor=cursor)
-                    save_article_flows(article_data.article_flows, cursor=cursor)
+                    end_id = await get_latest_id(client)
+            print(f"Start ID: {start_id}. End ID: {end_id}")
 
-                    for hub in article_data.hubs:
-                        save_hub(hub, cursor=cursor)
+            if only_missing:
+                result = await session.execute(
+                    select(Article.id)
+                    .join(ArticleState)
+                    .where(ArticleState.is_success.is_(False))
+                    .where(Article.id >= start_id)
+                    .where(Article.id <= end_id)
+                )
+                ids = sorted(row[0] for row in result.all())
+            else:
+                ids = list(range(start_id, end_id + 1))
 
-                    for flow in article_data.flows:
-                        save_flow(flow, cursor=cursor)
+            if reverse:
+                ids.reverse()
 
-                    clean_comments(comments_data.comments, cursor=cursor)
-                    save_article_comments(comments_data.comments, cursor=cursor)
+            batch_size = max(concurrency * 2, 1)
+            for offset in range(0, len(ids), batch_size):
+                batch = ids[offset:offset + batch_size]
+                print("Downloading:", ", ".join(f"#{article_id}" for article_id in batch))
+                results = await asyncio.gather(*(fetch_one(article_id, client) for article_id in batch))
 
-                    for comment_contents in comments_data.comments_contents:
-                        save_comment_contents(comment_contents, cursor=cursor)
-
-                    for comment_child in comments_data.comments_children:
-                        save_comment_child(comment_child, cursor=cursor)
-
-                    for comment_author in comments_data.authors:
-                        save_author(comment_author, cursor=cursor)
-                else:
-                    print("Failed")
-                    if not was_success:
-                        save_article(article_data.article, cursor=cursor)
+                for article_data, comments_data in results:
+                    article_id = article_data.article.id_
+                    if article_data.article.is_success:
+                        print(f"#{article_id}: Success")
                     else:
-                        print(f"Article {id_} was downloaded earlier. Skipping update.")
-                connection.commit()
-        except Exception as e:
-            connection.rollback()
-            print(e)
-            raise e
-        return
+                        print(f"#{article_id}: Failed")
+                    async with session_factory() as write_session:
+                        await save_download(write_session, article_data, comments_data)
+        finally:
+            await client.close()
+
+    await engine.dispose()
 
 
 def main():
     parser = ArgumentParser()
-    parser.add_argument(
-        "--start-id",
-        type=int,
-        default=None,
-        help=(
-            "First article id. If not specified, will be last_downloaded + 1, "
-            "if not set --only-missing, else 1"
-        )
-    )
-    parser.add_argument(
-        "--end-id",
-        type=int,
-        default=None,
-        help=(
-            "Last article id. If not specified, will be last available article on the website "
-            "if not set --only-missing, else last downloaded article"
-        )
-    )
-    parser.add_argument(
-        "--reverse",
-        action="store_true",
-        help="Download only articles from newest to oldest"
-    )
-    parser.add_argument("--only-missing", action="store_true",
-        help="Download only articles that were not downloaded due to errors")
+    parser.add_argument("--start-id", type=int, default=None)
+    parser.add_argument("--end-id", type=int, default=None)
+    parser.add_argument("--reverse", action="store_true")
+    parser.add_argument("--only-missing", action="store_true")
+    parser.add_argument("--requests-per-second", type=float, default=5.0)
+    parser.add_argument("--concurrency", type=int, default=10)
     args = parser.parse_args()
-    start_id = args.start_id
-    end_id = args.end_id
-    only_missing = args.only_missing
-    reverse = args.reverse
-    run(
-        only_missing=only_missing,
-        start_id=start_id,
-        end_id=end_id,
-        reverse=reverse,
-    )
+
+    asyncio.run(run(
+        only_missing=args.only_missing,
+        start_id=args.start_id,
+        end_id=args.end_id,
+        reverse=args.reverse,
+        requests_per_second=args.requests_per_second,
+        concurrency=args.concurrency,
+    ))
 
 
 if __name__ == "__main__":
