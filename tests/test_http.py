@@ -208,3 +208,21 @@ async def test_rate_limiter_requires_positive_rate():
     limiter = RateLimiter(100)
     await limiter.acquire()
     await limiter.acquire()
+
+
+@pytest.mark.asyncio
+async def test_server_error_is_marked_failed():
+    client = HabrClient(requests_per_second=1000, retries=0)
+
+    async def handler(request):
+        return httpx.Response(500)
+
+    await replace_transport(client, handler)
+    try:
+        article = await get_article(87633, client)
+
+        assert article.id == 87633
+        assert article.state is not None
+        assert article.state.is_success is False
+    finally:
+        await client.close()

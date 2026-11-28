@@ -2,6 +2,8 @@ import datetime
 import re
 import xml.etree.ElementTree as ET
 
+import httpx
+
 from habrareader.data.model import (
     Article,
     ArticleState,
@@ -16,7 +18,19 @@ from habrareader.download.client import HabrClient
 
 async def get_article(id_: int, client: HabrClient) -> Article:
     url = f"https://habr.com/kek/v2/articles/{id_}"
-    response = await client.request(url)
+    try:
+        response = await client.request(url)
+    except httpx.HTTPError:
+        downloaded_at = int(datetime.datetime.now().timestamp())
+        article = Article(id=id_)
+        article.state = ArticleState(
+            id=id_,
+            published_at=None,
+            updated_at=downloaded_at,
+            is_success=False,
+        )
+        return article
+
     downloaded_at = int(datetime.datetime.now().timestamp())
 
     if response.status_code != 200:
